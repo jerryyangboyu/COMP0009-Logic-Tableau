@@ -73,6 +73,9 @@ class Predicate(Symbol):
         elif self._rightVar == v:
             self._rightVar = c
 
+    def __str__(self):
+        return self.name + "(" + str(self.getLeftVar()) + "," + str(self.getRightVar()) + ")"
+
 
 class Formula(Symbol):
     _children: []
@@ -110,14 +113,9 @@ class Formula(Symbol):
             return FormulaSymbol.Exist + str(self.getVariable()) + str(self.getLeft())
         if isinstance(self, ForAllFormula):
             return FormulaSymbol.All + str(self.getVariable()) + str(self.getLeft())
-        if isinstance(self, Proposition):
-            return self.name
-        if isinstance(self, Variable):
-            return self.name
-        if isinstance(self, Constant):
-            return self.name
-        if isinstance(self, Predicate):
-            return self.name + "(" + str(self.getLeftVar()) + "," + str(self.getRightVar()) + ")"
+        if isinstance(self, Proposition) or isinstance(self, Variable) \
+                or isinstance(self, Constant) or isinstance(self, Predicate):
+            return str(self)
         return "(" + str(self.getLeft()) + self.name + str(self.getRight()) + ")"
 
 
@@ -427,11 +425,11 @@ if __name__ == '__main__':
     test_inputs = pred_input.split("\n")
     for s in test_inputs:
         parser = Parser()
-        # try:
-        tree = parser.parse(s)
-        print(tree)
-        # except Exception as err:
-        #     print(err)
+        try:
+            tree = parser.parse(s)
+            print(tree)
+        except Exception as err:
+            print(err)
 
     # tableau = ProofMachine()
     # print(tableau.isValid(tree))

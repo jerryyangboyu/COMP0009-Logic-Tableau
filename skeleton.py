@@ -4,31 +4,7 @@ MAX_CONSTANTS = 10
 
 
 
-# Parse a formula, consult parseOutputs for return values.
-def parse(fmla):
-    return 0
 
-# Return the LHS of a binary connective formula
-def lhs(fmla):
-    return ''
-
-# Return the connective symbol of a binary connective formula
-def con(fmla):
-    return ''
-
-# Return the RHS symbol of a binary connective formula
-def rhs(fmla):
-    return ''
-
-
-# You may choose to represent a theory as a set or a list
-def theory(fmla):#initialise a theory with a single formula in it
-    return None
-
-#check for satisfiability
-def sat(tableau):
-#output 0 if not satisfiable, output 1 if satisfiable, output 2 if number of constants exceeds MAX_CONSTANTS
-    return 0
 
 #DO NOT MODIFY THE CODE BELOW
 f = open('input.txt')

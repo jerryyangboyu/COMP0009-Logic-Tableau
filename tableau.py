@@ -24,6 +24,10 @@ class Symbol:
     def __eq__(self, other):
         return self.name == other.name
 
+    def isAtom(self):
+        return isinstance(self, Proposition) or isinstance(self, Variable) \
+            or isinstance(self, Constant) or isinstance(self, Predicate)
+
 
 class Proposition(Symbol):
     def __init__(self, name):
@@ -95,6 +99,9 @@ class Formula(Symbol):
 
     def setRight(self, child):
         self._children[1] = child
+
+    def isBinary(self):
+        return self.getLeft() is not None and self.getRight() is not None
 
     def expand(self):
         return None
@@ -188,10 +195,25 @@ class ExistFormula(Formula):
         return self._var
 
 
+class ParseException(Exception):
+    def __init__(self, reason):
+        super(ParseException, self).__init__(reason)
+
+
+class TableauException(Exception):
+    def __init__(self, reason):
+        super(TableauException, self).__init__(reason)
+
+
 class Parser:
-    _tokens = []
-    _p = 0
-    _temp_p = 0
+    def __init__(self):
+        self._isFirstOrder = False
+        self._tokens = []
+        self._p = 0
+        self._temp_p = 0
+
+    def isFirstOrderFormula(self):
+        return self._isFirstOrder
 
     def hasNext(self):
         return self._p != len(self._tokens)
@@ -214,7 +236,7 @@ class Parser:
     def eatNext(self, symbol: str):
         actual = self.readNext()
         if actual != symbol:
-            raise Exception("Syntax Error: Expecting " + symbol + " actual " + actual)
+            raise ParseException("Syntax Error: Expecting " + symbol + " actual " + actual)
         return symbol
 
     def parse(self, formula: str) -> Symbol:
@@ -229,19 +251,20 @@ class Parser:
 
         # empty formula
         if first is None:
-            raise Exception("Unexpected empty sequence")
+            raise ParseException("Unexpected empty sequence")
 
         # first order logic base case
         elif Predicate.isPredChar(first):
+            self._isFirstOrder = True
             name = self.readNext()
             self.eatNext("(")
             var1 = self.readNext()
             if not Variable.isVar(var1):
-                raise Exception("var1 is not a variable")
+                raise ParseException("var1 is not a variable")
             self.eatNext(",")
             var2 = self.readNext()
             if not Variable.isVar(var2):
-                raise Exception("var2 is not a variable")
+                raise ParseException("var2 is not a variable")
             self.eatNext(")")
             return Predicate(name, var1, var2)
 
@@ -258,19 +281,21 @@ class Parser:
 
         # existentially quantified
         elif first == FormulaSymbol.Exist:
+            self._isFirstOrder = True
             self.eatNext(FormulaSymbol.Exist)
             var = self.readNext()
             if not Variable.isVar(var):
-                raise Exception("existentially quantifier requires a variable")
+                raise ParseException("existentially quantifier requires a variable")
             formula = self.parseFormula()
             return ExistFormula(var, formula)
 
         # universally quantified
         elif first == FormulaSymbol.All:
+            self._isFirstOrder = True
             self.eatNext(FormulaSymbol.All)
             var = self.readNext()
             if not Variable.isVar(var):
-                raise Exception("universally quantifier requires a variable")
+                raise ParseException("universally quantifier requires a variable")
             formula = self.parseFormula()
             return ForAllFormula(var, formula)
 
@@ -284,7 +309,7 @@ class Parser:
 
         # undefined rule
         else:
-            raise Exception("Undefined rule, unexpected token" + first)
+            raise ParseException("Undefined rule, unexpected token" + first)
 
     def parseBinary(self):
         left = self.parseFormula()
@@ -298,7 +323,7 @@ class Parser:
         elif op == FormulaSymbol.Implies:
             return ImpliesFormula(left, right)
         else:
-            raise Exception("Unrecognized operator " + op)
+            raise ParseException("Unrecognized operator " + op)
 
 
 class ProofMachine:
@@ -389,48 +414,125 @@ class ProofMachine:
             return self._beta(t, formulas, symbols, childrenPrefix +
                               "├─beta({0})─ ".format(self._expand_id), childrenPrefix + "│            ")
         else:
-            raise Exception("Cannot evaluate formula " + str(t))
+            raise TableauException("Cannot evaluate formula " + str(t))
 
     def getOutput(self) -> str:
         return "\n".join(self._process)
 
 
-prop_input = """-(p>(q>p))
-(-(p>q)^q)
-(---pv(q^-q))
-(p>p)
--(p>p)
-((pvq)^
-(p-q)
-((pvq)^(-pv-q))
-(q^-(pv-p))
-p
-((pvq)^((p>-p)^(-p>p)))
------------q"""
+# @MainCaller
+# central information process
+resultTree: Formula
 
-pred_input = """(ExP(x,x)^Ax(-P(x,x)>P(x,x)))
--Ax(P(x,x)^-P(x,x))
--Ax-Ey-P(x,y)
-ExAx(P(x,x)^-P(x,x))
-ExAy(Q(x,x)>P(y,y))
-(Q(x,x)-(P(y,y))
-ExEy((Q(x,x)^Q(y,y))v-P(y,y))
-ExEy((Q(x,x)^Q(y,y))v
-Ex-P(x,x)
-(AxEyP(x,y)^EzQ(z,z))
-(Ax(P(x,x)^-P(x,x))^ExQ(x,x))
-ExEy(P(x,y)^Ex-P(x,y))"""
 
-if __name__ == '__main__':
-    test_inputs = pred_input.split("\n")
-    for s in test_inputs:
-        parser = Parser()
-        try:
-            tree = parser.parse(s)
-            print(tree)
-        except Exception as err:
-            print(err)
+class ParseOutputOption:
+    NOT_FORMULA = 0
+    ATOM = 1
+    FIRST_ORDER_FORMULA_NEGATION = 2
+    UNIVERSAL_QUANTIFIED_FORMULA = 3
+    EXISTENTIALLY_QUANTIFIED_FORMULA = 4
+    BINARY_FIRST_ORDER_FORMULA = 5
+    PROPOSITION = 6
+    PROPOSITIONAL_FORMULA_NEGATION = 7
+    BINARY_PROPOSITIONAL_FORMULA = 8
 
-    # tableau = ProofMachine()
-    # print(tableau.isValid(tree))
-    # print(tableau.getOutput())
+
+# Parse a formula, consult parseOutputs for return values.
+def parse(fm):
+    global resultTree
+    try:
+        callerParser = Parser()
+        resultTree = callerParser.parse(fm)
+        if not isinstance(resultTree, Formula):
+            if isinstance(resultTree, Proposition):
+                return ParseOutputOption.PROPOSITION
+            return ParseOutputOption.ATOM
+        if callerParser.isFirstOrderFormula():
+            if resultTree.isBinary():
+                return ParseOutputOption.BINARY_FIRST_ORDER_FORMULA
+            if isinstance(resultTree, ExistFormula):
+                return ParseOutputOption.EXISTENTIALLY_QUANTIFIED_FORMULA
+            if isinstance(resultTree, ForAllFormula):
+                return ParseOutputOption.UNIVERSAL_QUANTIFIED_FORMULA
+            if isinstance(resultTree, NotFormula):
+                return ParseOutputOption.FIRST_ORDER_FORMULA_NEGATION
+        else:
+            if isinstance(resultTree, NotFormula):
+                return ParseOutputOption.PROPOSITIONAL_FORMULA_NEGATION
+            if resultTree.isBinary():
+                return ParseOutputOption.BINARY_PROPOSITIONAL_FORMULA
+            return ParseOutputOption.PROPOSITION
+    except ParseException:
+        return ParseOutputOption.NOT_FORMULA
+
+
+# Return the LHS of a binary connective formula
+def lhs(fm):
+    return str(resultTree.getLeft())
+
+
+# Return the connective symbol of a binary connective formula
+def con(fm):
+    return resultTree.name
+
+
+# Return the RHS symbol of a binary connective formula
+def rhs(fm):
+    return str(resultTree.getRight())
+
+
+# You may choose to represent a theory as a set or a list
+def theory(fm):  # initialise a theory with a single formula in it
+    return None
+
+
+# check for satisfiability
+def sat(fm):
+    # output 0 if not satisfiable, output 1 if satisfiable, output 2 if number of constants exceeds MAX_CONSTANTS
+    return 0
+
+
+# @Template Injected
+# DO NOT MODIFY THE CODE BELOW
+f = open('input.txt')
+
+parseOutputs = ['not a formula',
+                'an atom',
+                'a negation of a first order logic formula',
+                'a universally quantified formula',
+                'an existentially quantified formula',
+                'a binary connective first order formula',
+                'a proposition',
+                'a negation of a propositional formula',
+                'a binary connective propositional formula']
+
+satOutput = ['is not satisfiable', 'is satisfiable', 'may or may not be satisfiable']
+
+firstLine = f.readline()
+
+PARSE = False
+if 'PARSE' in firstLine:
+    PARSE = True
+
+SAT = False
+if 'SAT' in firstLine:
+    SAT = True
+
+for line in f:
+    if line[-1] == '\n':
+        line = line[:-1]
+    parsed = parse(line)
+
+    if PARSE:
+        output = "%s is %s." % (line, parseOutputs[parsed])
+        if parsed in [5, 8]:
+            output += " Its left hand side is %s, its connective is %s, and its right hand side is %s." % (
+                lhs(line), con(line), rhs(line))
+        print(output)
+
+    if SAT:
+        if parsed:
+            tableau = [theory(line)]
+            print('%s %s.' % (line, satOutput[sat(tableau)]))
+        else:
+            print('%s is not a formula.' % line)

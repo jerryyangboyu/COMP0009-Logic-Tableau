@@ -1,0 +1,4 @@
+((AxEy-P(x,y)^AxAyP(x,y))^ExP(x,x)) is not satisfiable.
+(AxEyP(x,y)^EzQ(z,z)) may or may not be satisfiable.
+(AxAyEz(P(x,z)^P(z,y))^ExP(x,x)) may or may not be satisfiable.
+(ExEyP(x,y)^AyEzP(y,z)) may or may not be satisfiable.

@@ -1,0 +1,7 @@
+SAT
+-------AxP(x,x)
+(ExP(x,x)>EyP(y,y))
+-((AxP(x,x)^AxQ(x,x))>Ax(P(x,x)^Q(x,x)))
+-Ax-(P(x,x)v-P(x,x))
+-Ax(P(x,x)v-P(x,x))
+((AxEy-P(x,y)^AxAyP(x,y))^ExP(x,x))

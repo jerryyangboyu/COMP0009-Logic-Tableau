@@ -1,0 +1,8 @@
+-(p>p) is not satisfiable.
+(-p>p) is satisfiable.
+--((pvq)^((p>-p)^(-p>p))) is not satisfiable.
+-(p>(q>p)) is not satisfiable.
+(-(p>q)^q) is not satisfiable.
+(pvr) is satisfiable.
+-((p>p)>(q>q)) is not satisfiable.
+(q^-(q^(p^q))) is satisfiable.

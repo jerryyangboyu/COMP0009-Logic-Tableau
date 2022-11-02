@@ -1,0 +1,12 @@
+-------AxP(x,x) is a negation of a first order logic formula.
+(ExP(x,x)>EyP(y,y)) is a binary connective first order formula. Its left hand side is ExP(x,x), its connective is >, and its right hand side is EyP(y,y).
+-((AxP(x,x)^AxQ(x,x))>Ax(P(x,x)^Q(x,x))) is a negation of a first order logic formula.
+-Ax-(P(x,x)v-P(x,x)) is a negation of a first order logic formula.
+-Ax(P(x,x)v-P(x,x)) is a negation of a first order logic formula.
+ExEyEzP(x,y,z) is not a formula.
+ExEy((Q(x,x)^Q(y,y))v) is not a formula.
+((AxEy-P(x,y)^AxAyP(x,y))^ExP(x,x)) is a binary connective first order formula. Its left hand side is (AxEy-P(x,y)^AxAyP(x,y)), its connective is ^, and its right hand side is ExP(x,x).
+(AxEyP(x,y)^EzQ(z,z)) is a binary connective first order formula. Its left hand side is AxEyP(x,y), its connective is ^, and its right hand side is EzQ(z,z).
+(AxAyEz(P(x,z)^P(z,y))^ExP(x,x)) is a binary connective first order formula. Its left hand side is AxAyEz(P(x,z)^P(z,y)), its connective is ^, and its right hand side is ExP(x,x).
+(AxAyEz(P(x,z)^P(z,y))^ExP(x,x))) is not a formula.
+(ExEyP(x,y)^AyEzP(y,z)) is a binary connective first order formula. Its left hand side is ExEyP(x,y), its connective is ^, and its right hand side is AyEzP(y,z).

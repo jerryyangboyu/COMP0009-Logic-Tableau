@@ -1,0 +1,13 @@
+PARSE
+-------AxP(x,x)
+(ExP(x,x)>EyP(y,y))
+-((AxP(x,x)^AxQ(x,x))>Ax(P(x,x)^Q(x,x)))
+-Ax-(P(x,x)v-P(x,x))
+-Ax(P(x,x)v-P(x,x))
+ExEyEzP(x,y,z)
+ExEy((Q(x,x)^Q(y,y))v)
+((AxEy-P(x,y)^AxAyP(x,y))^ExP(x,x))
+(AxEyP(x,y)^EzQ(z,z))
+(AxAyEz(P(x,z)^P(z,y))^ExP(x,x))
+(AxAyEz(P(x,z)^P(z,y))^ExP(x,x)))
+(ExEyP(x,y)^AyEzP(y,z))

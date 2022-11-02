@@ -1,0 +1,6 @@
+-------AxP(x,x) is satisfiable.
+(ExP(x,x)>EyP(y,y)) is satisfiable.
+-((AxP(x,x)^AxQ(x,x))>Ax(P(x,x)^Q(x,x))) is not satisfiable.
+-Ax-(P(x,x)v-P(x,x)) is satisfiable.
+-Ax(P(x,x)v-P(x,x)) is not satisfiable.
+((AxEy-P(x,y)^AxAyP(x,y))^ExP(x,x)) is not satisfiable.

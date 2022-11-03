@@ -1,7 +1,5 @@
 # propositional and first order tableau
 
-from typing import Union, List
-
 
 class FormulaSymbol:
     And = "^"
@@ -24,9 +22,12 @@ class Symbol:
     def __eq__(self, other):
         return self.name == other.name
 
-    def isAtom(self):
-        return isinstance(self, Proposition) or isinstance(self, Variable) \
-            or isinstance(self, Constant) or isinstance(self, Predicate)
+    def isPrimary(self):
+        return isinstance(self, Proposition) \
+               or (isinstance(self, Predicate) and self.isQuantified())
+
+    def isSymbol(self):
+        return self.isPrimary() or (isinstance(self, NotFormula) and self.getLeft().isPrimary())
 
 
 class Proposition(Symbol):
@@ -76,6 +77,12 @@ class Predicate(Symbol):
             self._leftVar = c
         elif self._rightVar == v:
             self._rightVar = c
+
+    def isQuantified(self):
+        return isinstance(self._leftVar, Constant) and isinstance(self._rightVar, Constant)
+
+    def __eq__(self, other):
+        return self.getLeftVar() == other.getLeftVar() and self.getRightVar() == other.getRightVar()
 
     def __str__(self):
         return self.name + "(" + str(self.getLeftVar()) + "," + str(self.getRightVar()) + ")"
@@ -168,9 +175,6 @@ class NotFormula(Formula):
             return ForAllFormula(formula.getVariable(), NotFormula(formula))
         else:  # ~A = ~A
             return self
-
-    def isNegativeLiteral(self):
-        return isinstance(self.getLeft(), Symbol)
 
 
 class ForAllFormula(Formula):
@@ -334,95 +338,166 @@ class Parser:
             raise ParseException("Unrecognized operator " + op)
 
 
-class ProofMachine:
-    Element = Union[Formula, Symbol]
-    SymbolElement = Union[NotFormula, Symbol]
+class Result:
+    SATISFIABLE = 0
+    NOT_SATISFIABLE = 1
+    MAY_SATISFIABLE = 2
 
-    _process: List[str] = []
-    _expand_id = 0
+    def __init__(self, result):
+        self.result = result
 
-    def isValid(self, t: Formula) -> bool:
-        return self._isFormulaClosed(NotFormula(t), [], [], "", "")
+    def __str__(self):
+        if self.result == Result.SATISFIABLE:
+            return "satisfiable"
+        elif self.result == Result.NOT_SATISFIABLE:
+            return "not satisfiable"
+        elif self.result == Result.MAY_SATISFIABLE:
+            return "may satisfiable"
+        else:
+            raise TableauException("invalid result value")
 
-    @staticmethod
-    def _isSymbolElement(t: Element):
-        return (isinstance(t, NotFormula) and t.isNegativeLiteral()) or isinstance(t, Symbol)
+    def __and__(self, other):
+        if self.result == Result.SATISFIABLE and other.result == Result.SATISFIABLE:
+            return Result(Result.SATISFIABLE)
+        if self.result == Result.NOT_SATISFIABLE or other.result == Result.NOT_SATISFIABLE:
+            return Result(Result.NOT_SATISFIABLE)
+        if self.result == Result.MAY_SATISFIABLE or other.result == Result.MAY_SATISFIABLE:
+            return Result(Result.MAY_SATISFIABLE)
+        raise TableauException("Uncaught logic and evaluation, left: " + str(self) + " right: " + str(other))
 
-    @staticmethod
-    def _findContradictionSymbol(symbols: List[SymbolElement]) -> Union[NotFormula, None]:
-        for symbol in symbols:
+    def __or__(self, other):
+        if self.result == Result.SATISFIABLE or other.result == Result.SATISFIABLE:
+            return Result(Result.SATISFIABLE)
+        if self.result == Result.MAY_SATISFIABLE or other.result == Result.MAY_SATISFIABLE:
+            return Result(Result.MAY_SATISFIABLE)
+        if self.result == Result.NOT_SATISFIABLE and other.result == Result.NOT_SATISFIABLE:
+            return Result(Result.NOT_SATISFIABLE)
+        raise TableauException("Uncaught logic or evaluation, left: " + str(self) + " right: " + str(other))
+
+
+class PriorityQueue:
+    def __init__(self, fms=None, syms=None):
+        if syms is None:
+            syms = []
+        if fms is None:
+            fms = []
+
+        # intermediate formula expansions
+        self.formulas: [Formula] = fms
+        # terminal terms along the proof trace
+        self.symbols: [Symbol] = syms
+
+    def addFormula(self, fm: Symbol):
+        if fm.isSymbol():
+            self.symbols.append(fm)
+        else:
+            # favor Existential formula, because it can introduce new variable
+            if isinstance(fm, ExistFormula):
+                self.formulas.insert(0, fm)
+            # favor AND formula, to increase tableau efficiency
+            elif isinstance(fm, AndFormula):
+                self.formulas.insert(0, fm)
+            else:
+                self.formulas.append(fm)
+
+    def getFormula(self) -> Symbol | None:
+        if len(self.formulas) == 0:
+            return None
+        return self.formulas.pop(0)
+
+    def getRemainingSymbols(self):
+        return self.symbols
+
+    def checkContradiction(self):
+        for symbol in self.symbols:
             if isinstance(symbol, NotFormula):
-                for compare in symbols:
-                    if compare.name == symbol.getLeft().name:
+                for compare in self.symbols:
+                    if compare == symbol.getLeft():
                         return symbol
         return None
 
-    def _alpha(self, t: AndFormula, formulas: List[Element], symbols: List[SymbolElement],
-               prefix: str, childrenPrefix: str) -> bool:
-        self._process.append(prefix + str(t))
+    def copy(self):
+        return PriorityQueue(self.formulas.copy(), self.symbols.copy())
 
-        left = t.getLeft()
-        if isinstance(left, NotFormula) or isinstance(t, ImpliesFormula):
-            left = left.expand()
-        if ProofMachine._isSymbolElement(t.getLeft()):
-            symbols.append(left)
-        else:
-            formulas.append(left)
+
+class ProofMachine:
+    def __init__(self):
+        self._process = []
+        self._expand_id = 0
+
+    def SAT(self, t: Formula) -> Result:
+        return self._isFormulaClosed(NotFormula(t), PriorityQueue(), "", "")
+
+
+    def _alpha(self, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
+        fm = queue.getFormula()
+        assert isinstance(fm, AndFormula)
+        self._process.append(prefix + str(fm))
+
+        left = fm.getLeft()
+        queue.addFormula(left)
         self._process.append(prefix + str(left))
 
-        right = t.getRight()
-        if isinstance(right, NotFormula) or isinstance(t, ImpliesFormula):
-            right = right.expand()
-        if ProofMachine._isSymbolElement(right):
-            symbols.append(right)
-        else:
-            formulas.append(right)
+        right = fm.getRight()
+        queue.addFormula(right)
         self._process.append(prefix + str(right))
 
         self._expand_id += 1
-        return self._atom(formulas, symbols, prefix, childrenPrefix)
+        return self._atom(queue, prefix, childrenPrefix)
 
-    def _atom(self, formulas: List[Element], symbols: List[SymbolElement], prefix: str, childrenPrefix: str) -> bool:
-        symbol = ProofMachine._findContradictionSymbol(symbols)
+    def _atom(self, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
+        symbol = queue.checkContradiction()
         if symbol is not None:
             self._process.append(prefix + "Close because {0} contradict with {1}".format(symbol, symbol.getLeft()))
-            return True
-        elif len(formulas) == 0:
-            self._process.append(prefix + "Branch is open for variables {0}".format([str(__s) for __s in symbols]))
-            return False
+            # the negation result leads to contradiction, hence this branch is satisfiable
+            return Result(Result.SATISFIABLE)
 
-        formula = formulas.pop(0)
-        return self._isFormulaClosed(formula, formulas, symbols, prefix, childrenPrefix)
+        fm = queue.getFormula()
+        if fm is None:
+            self._process.append(prefix + "Branch is open for variables {0}"
+                                 .format([str(__s) for __s in queue.getRemainingSymbols()]))
+            # the negation result stands in this branch, hench this branch is not satisfiable
+            return Result(Result.NOT_SATISFIABLE)
 
-    def _beta(self, t: OrFormula, formulas: List[Element], symbols: List[SymbolElement],
-              prefix: str, childrenPrefix: str) -> bool:
-        self._process.append(prefix + str(t))
+        return self._isFormulaClosed(fm, queue, prefix, childrenPrefix)
+
+    def _beta(self, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
+        fm = queue.getFormula()
+        assert isinstance(fm, OrFormula)
+
+        self._process.append(prefix + str(fm))
         self._expand_id += 1
 
-        leftCondition = self._isFormulaClosed(t.getLeft(), formulas.copy(), symbols.copy(),
-                                              childrenPrefix, childrenPrefix)
-        rightCondition = self._isFormulaClosed(t.getRight(), formulas.copy(), symbols.copy(),
-                                               childrenPrefix, childrenPrefix)
+        leftCondition = self._isFormulaClosed(fm.getLeft(), queue.copy(), childrenPrefix, childrenPrefix)
+        rightCondition = self._isFormulaClosed(fm.getRight(), queue.copy(), childrenPrefix, childrenPrefix)
         return leftCondition and rightCondition
 
-    def _isFormulaClosed(self, t: Formula, formulas: List[Element], symbols: List[SymbolElement],
-                         prefix: str, childrenPrefix: str) -> bool:
-        if isinstance(t, NotFormula) or isinstance(t, ImpliesFormula):
-            t = t.expand()
+    def _isFormulaClosed(self, fm: Symbol, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
+        # default root negation expand
+        if isinstance(fm, NotFormula) or isinstance(fm, ImpliesFormula):
+            fm = fm.expand()
 
-        if ProofMachine._isSymbolElement(t):
-            self._process.append(prefix + "├── " + str(t))
-            symbols.append(t)
-            return self._atom(formulas, symbols, prefix, childrenPrefix)
+        queue.addFormula(fm)
 
-        if isinstance(t, AndFormula):
-            return self._alpha(t, formulas, symbols, childrenPrefix +
-                               "│ alpha({0}) ".format(self._expand_id), "│            ".format(self._expand_id))
-        elif isinstance(t, OrFormula):
-            return self._beta(t, formulas, symbols, childrenPrefix +
-                              "├─beta({0})─ ".format(self._expand_id), childrenPrefix + "│            ")
+        # end of branch, check if and remaining formulas unchecked
+        if fm.isSymbol():
+            self._process.append(prefix + "├── " + str(fm))
+            return self._atom(queue, prefix, childrenPrefix)
+
+        # alpha expansion
+        if isinstance(fm, AndFormula):
+            prefix = childrenPrefix + "│ alpha({0}) ".format(self._expand_id)
+            childrenPrefix = "│            ".format(self._expand_id)
+            return self._alpha(queue, prefix, childrenPrefix)
+
+        # beta expansion
+        elif isinstance(fm, OrFormula):
+            prefix = childrenPrefix + "├─beta({0})─ ".format(self._expand_id)
+            childrenPrefix = childrenPrefix + "│            "
+            return self._beta(queue, prefix, childrenPrefix)
+
         else:
-            raise TableauException("Cannot evaluate formula " + str(t))
+            raise TableauException("Cannot evaluate formula " + str(fm))
 
     def getOutput(self) -> str:
         return "\n".join(self._process)
@@ -475,17 +550,17 @@ def parse(fm):
 
 
 # Return the LHS of a binary connective formula
-def lhs(fm):
+def lhs():
     return str(resultTree.getLeft())
 
 
 # Return the connective symbol of a binary connective formula
-def con(fm):
+def con():
     return resultTree.name
 
 
 # Return the RHS symbol of a binary connective formula
-def rhs(fm):
+def rhs():
     return str(resultTree.getRight())
 
 
@@ -535,7 +610,7 @@ for line in f:
         output = "%s is %s." % (line, parseOutputs[parsed])
         if parsed in [5, 8]:
             output += " Its left hand side is %s, its connective is %s, and its right hand side is %s." % (
-                lhs(line), con(line), rhs(line))
+                lhs(), con(), rhs())
         print(output)
 
     if SAT:

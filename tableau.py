@@ -239,12 +239,20 @@ class Parser:
             raise ParseException("Syntax Error: Expecting " + symbol + " actual " + actual)
         return symbol
 
+    def assertEnd(self):
+        if self.hasNext():
+            value = self.readNext()
+            raise ParseException("Unexpected token " + value)
+
     def parse(self, formula: str) -> Symbol:
         # produces tokens
         self._tokens = list(formula)
 
         # building formula tree
-        return self.parseFormula()
+        formula = self.parseFormula()
+        self.assertEnd()
+
+        return formula
 
     def parseFormula(self) -> Symbol:
         first = self.peekNext()

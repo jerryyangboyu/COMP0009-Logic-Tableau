@@ -1,4 +1,5 @@
 # propositional and first order tableau
+debugFlag = False
 
 
 class FormulaSymbol:
@@ -114,11 +115,13 @@ class Formula(Symbol):
         return None
 
     def __eq__(self, other):
-        isNameEq = self.name == other.name
-        isSameClass = type(self) is type(other)
-        isLeftChildSame = self.getLeft() == other.getLeft()
-        isRightChildSame = self.getRight() == other.getRight()
-        return isNameEq and isSameClass and isLeftChildSame and isRightChildSame
+        result = True
+        result = result and self.name == other.name  # is name same
+        result = result and type(self) is type(other)  # is same class
+        if isinstance(self, Formula) and isinstance(other, Formula):
+            result = result and self.getLeft() == other.getLeft()  # is same left child
+            result = result and self.getRight() == other.getRight()  # is same right child
+        return result
 
     def __str__(self):
         if isinstance(self, NotFormula):
@@ -339,33 +342,19 @@ class Parser:
 
 
 class Result:
-    SATISFIABLE = 0
-    NOT_SATISFIABLE = 1
+    # output 0 if not satisfiable, output 1 if satisfiable, output 2 if number of constants exceeds MAX_CONSTANTS
+    SATISFIABLE = 1
+    NOT_SATISFIABLE = 0
     MAY_SATISFIABLE = 2
 
     def __init__(self, result):
         self.result = result
 
     def __str__(self):
-        if self.result == Result.SATISFIABLE:
-            return "satisfiable"
-        elif self.result == Result.NOT_SATISFIABLE:
-            return "not satisfiable"
-        elif self.result == Result.MAY_SATISFIABLE:
-            return "may satisfiable"
-        else:
-            raise TableauException("invalid result value")
+        return satOutput[self.result]
 
-    def __and__(self, other):
-        if self.result == Result.SATISFIABLE and other.result == Result.SATISFIABLE:
-            return Result(Result.SATISFIABLE)
-        if self.result == Result.NOT_SATISFIABLE or other.result == Result.NOT_SATISFIABLE:
-            return Result(Result.NOT_SATISFIABLE)
-        if self.result == Result.MAY_SATISFIABLE or other.result == Result.MAY_SATISFIABLE:
-            return Result(Result.MAY_SATISFIABLE)
-        raise TableauException("Uncaught logic and evaluation, left: " + str(self) + " right: " + str(other))
-
-    def __or__(self, other):
+    @staticmethod
+    def checkSAT(self, other):
         if self.result == Result.SATISFIABLE or other.result == Result.SATISFIABLE:
             return Result(Result.SATISFIABLE)
         if self.result == Result.MAY_SATISFIABLE or other.result == Result.MAY_SATISFIABLE:
@@ -388,6 +377,10 @@ class PriorityQueue:
         self.symbols: [Symbol] = syms
 
     def addFormula(self, fm: Symbol):
+        # we expand in advance so that we have apply the rule directly after retrieving formula
+        if isinstance(fm, NotFormula) or isinstance(fm, ImpliesFormula):
+            fm = fm.expand()
+
         if fm.isSymbol():
             self.symbols.append(fm)
         else:
@@ -426,12 +419,9 @@ class ProofMachine:
         self._expand_id = 0
 
     def SAT(self, t: Formula) -> Result:
-        return self._isFormulaClosed(NotFormula(t), PriorityQueue(), "", "")
+        return self._isFormulaClosed(t, PriorityQueue(), "", "")
 
-
-    def _alpha(self, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
-        fm = queue.getFormula()
-        assert isinstance(fm, AndFormula)
+    def _alpha(self, fm: AndFormula, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
         self._process.append(prefix + str(fm))
 
         left = fm.getLeft()
@@ -448,53 +438,49 @@ class ProofMachine:
     def _atom(self, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
         symbol = queue.checkContradiction()
         if symbol is not None:
+            self._process.append(prefix + "├── " + str(symbol))
             self._process.append(prefix + "Close because {0} contradict with {1}".format(symbol, symbol.getLeft()))
             # the negation result leads to contradiction, hence this branch is satisfiable
-            return Result(Result.SATISFIABLE)
+            return Result(Result.NOT_SATISFIABLE)
 
         fm = queue.getFormula()
         if fm is None:
+            self._process.append(prefix + "├── ")
             self._process.append(prefix + "Branch is open for variables {0}"
                                  .format([str(__s) for __s in queue.getRemainingSymbols()]))
             # the negation result stands in this branch, hench this branch is not satisfiable
-            return Result(Result.NOT_SATISFIABLE)
+            return Result(Result.SATISFIABLE)
 
         return self._isFormulaClosed(fm, queue, prefix, childrenPrefix)
 
-    def _beta(self, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
-        fm = queue.getFormula()
-        assert isinstance(fm, OrFormula)
-
+    def _beta(self, fm: OrFormula, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
         self._process.append(prefix + str(fm))
         self._expand_id += 1
 
         leftCondition = self._isFormulaClosed(fm.getLeft(), queue.copy(), childrenPrefix, childrenPrefix)
         rightCondition = self._isFormulaClosed(fm.getRight(), queue.copy(), childrenPrefix, childrenPrefix)
-        return leftCondition and rightCondition
+        return Result.checkSAT(leftCondition, rightCondition)
 
     def _isFormulaClosed(self, fm: Symbol, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
-        # default root negation expand
-        if isinstance(fm, NotFormula) or isinstance(fm, ImpliesFormula):
-            fm = fm.expand()
-
+        # reschedule the formula order
         queue.addFormula(fm)
+        fm = queue.getFormula()
 
         # end of branch, check if and remaining formulas unchecked
-        if fm.isSymbol():
-            self._process.append(prefix + "├── " + str(fm))
+        if fm is None:
             return self._atom(queue, prefix, childrenPrefix)
 
         # alpha expansion
         if isinstance(fm, AndFormula):
             prefix = childrenPrefix + "│ alpha({0}) ".format(self._expand_id)
             childrenPrefix = "│            ".format(self._expand_id)
-            return self._alpha(queue, prefix, childrenPrefix)
+            return self._alpha(fm, queue, prefix, childrenPrefix)
 
         # beta expansion
         elif isinstance(fm, OrFormula):
             prefix = childrenPrefix + "├─beta({0})─ ".format(self._expand_id)
             childrenPrefix = childrenPrefix + "│            "
-            return self._beta(queue, prefix, childrenPrefix)
+            return self._beta(fm, queue, prefix, childrenPrefix)
 
         else:
             raise TableauException("Cannot evaluate formula " + str(fm))
@@ -565,14 +551,19 @@ def rhs():
 
 
 # You may choose to represent a theory as a set or a list
-def theory(fm):  # initialise a theory with a single formula in it
-    return None
+# assumption theory is not required here
+# def theory(fm):  # initialise a theory with a single formula in it
+#     return None
 
 
 # check for satisfiability
-def sat(fm):
+def sat():
+    machine = ProofMachine()
+    result = machine.SAT(resultTree)
+    if debugFlag:
+        print(machine.getOutput())
     # output 0 if not satisfiable, output 1 if satisfiable, output 2 if number of constants exceeds MAX_CONSTANTS
-    return 0
+    return str(result)
 
 
 # @Template Injected
@@ -615,7 +606,7 @@ for line in f:
 
     if SAT:
         if parsed:
-            tableau = [theory(line)]
-            print('%s %s.' % (line, satOutput[sat(tableau)]))
+            # tableau = [theory(line)]
+            print('%s %s.' % (line, sat()))
         else:
             print('%s is not a formula.' % line)

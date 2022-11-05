@@ -5,6 +5,7 @@ __pycache__/
 
 # prevent idea
 .idea
+input.txt
 output.txt
 test_input.txt
 

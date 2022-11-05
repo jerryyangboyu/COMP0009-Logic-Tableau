@@ -6,6 +6,7 @@ __pycache__/
 # prevent idea
 .idea
 output.txt
+test_input.txt
 
 # C extensions
 *.so

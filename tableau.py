@@ -365,16 +365,20 @@ class Result:
 
 
 class PriorityQueue:
-    def __init__(self, fms=None, syms=None):
+    def __init__(self, fms=None, syms=None, consts=None):
         if syms is None:
             syms = []
         if fms is None:
             fms = []
+        if consts is None:
+            consts = []
 
         # intermediate formula expansions
         self.formulas: [Formula] = fms
         # terminal terms along the proof trace
         self.symbols: [Symbol] = syms
+        # constants introduced
+        self.constants: [Constant] = consts
 
     def addFormula(self, fm: Symbol):
         # we expand in advance so that we have apply the rule directly after retrieving formula
@@ -409,8 +413,28 @@ class PriorityQueue:
                         return symbol
         return None
 
+    def getAllConstants(self):
+        return self.constants
+
+    # try to introduce new constant followed by Ex expansion
+    # when it has introduced more than 10 constants
+    # it will terminate and return None
+    def introduceConstant(self) -> Constant | None:
+        for i in range(10):
+            newConstChar = chr(ord('a') + i)
+            duplicate = False
+            for exC in self.constants:
+                if exC.name == newConstChar:
+                    duplicate = True
+                    break
+            if not duplicate:
+                newConst = Constant(newConstChar)
+                self.constants.append(newConst)
+                return newConst
+        return None
+
     def copy(self):
-        return PriorityQueue(self.formulas.copy(), self.symbols.copy())
+        return PriorityQueue(self.formulas.copy(), self.symbols.copy(), self.constants.copy())
 
 
 class ProofMachine:

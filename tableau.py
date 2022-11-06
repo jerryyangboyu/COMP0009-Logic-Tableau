@@ -609,9 +609,8 @@ class ProofMachine:
             # we have no constants at this moment
             if result is None:
                 return Result(Result.SATISFIABLE)
-            # exhausted all 10 symbols
             else:
-                return Result(Result.MAY_SATISFIABLE)
+                return result
 
         else:
             raise TableauException("Cannot evaluate formula " + str(fm))

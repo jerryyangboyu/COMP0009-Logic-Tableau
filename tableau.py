@@ -1,4 +1,5 @@
 # propositional and first order tableau
+# note: python 3.6.8 does not have | operator for types yet
 debugFlag = False
 
 
@@ -420,7 +421,7 @@ class ConstantSupplier:
     def canConsume(self):
         return self._i < len(self._constants)
 
-    def consume(self) -> Constant | None:
+    def consume(self):
         if self.canConsume():
             result = self._constants[self._i]
             self._i += 1
@@ -461,7 +462,7 @@ class PriorityQueue:
             else:
                 self.formulas.append(fm)
 
-    def getFormula(self) -> Symbol | None:
+    def getFormula(self):
         if len(self.formulas) == 0:
             return None
         return self.formulas.pop(0)
@@ -483,7 +484,7 @@ class PriorityQueue:
     # try to introduce new constant followed by Ex expansion
     # when it has introduced more than 10 constants
     # it will terminate and return None
-    def introduceConstant(self) -> Constant | None:
+    def introduceConstant(self):
         for i in range(10):
             newConstChar = chr(ord('a') + i)
             duplicate = False
@@ -534,7 +535,7 @@ class ProofMachine:
         fm = queue.getFormula()
         if fm is None:
             self._process.append(prefix + "├── ")
-            self._process.append(prefix + "Branch is open for variables {0}"
+            self._process.append(prefix + "Branch is Open for variables {0}"
                                  .format([str(__s) for __s in queue.getRemainingSymbols()]))
             # the negation result stands in this branch, hench this branch is not satisfiable
             return Result(Result.SATISFIABLE)

@@ -23,9 +23,11 @@ class Symbol:
     def __eq__(self, other):
         return self.name == other.name
 
+    def substitute(self, var, const):
+        return self
+
     def isPrimary(self):
-        return isinstance(self, Proposition) \
-               or (isinstance(self, Predicate) and self.isQuantified())
+        return isinstance(self, Proposition) or isinstance(self, Predicate)
 
     def isSymbol(self):
         return self.isPrimary() or (isinstance(self, NotFormula) and self.getLeft().isPrimary())
@@ -58,7 +60,7 @@ class Predicate(Symbol):
     _leftVar: Symbol
     _rightVar: Symbol
 
-    def __init__(self, name, left: Variable, right: Variable):
+    def __init__(self, name, left: Symbol, right: Symbol):
         super().__init__(name)
         self._leftVar = left
         self._rightVar = right
@@ -74,10 +76,13 @@ class Predicate(Symbol):
         return self._rightVar
 
     def substitute(self, v: Variable, c: Constant):
+        left = self._leftVar
+        right = self._rightVar
         if self._leftVar == v:
-            self._leftVar = c
-        elif self._rightVar == v:
-            self._rightVar = c
+            left = c
+        if self._rightVar == v:
+            right = c
+        return Predicate(self.name, left, right)
 
     def isQuantified(self):
         return isinstance(self._leftVar, Constant) and isinstance(self._rightVar, Constant)
@@ -112,7 +117,10 @@ class Formula(Symbol):
         return self.getLeft() is not None and self.getRight() is not None
 
     def expand(self):
-        return None
+        return self
+
+    def canExpand(self):
+        return isinstance(self, NotFormula) or isinstance(self, ImpliesFormula)
 
     def __eq__(self, other):
         result = True
@@ -141,11 +149,21 @@ class AndFormula(Formula):
     def __init__(self, left=None, right=None):
         super().__init__(FormulaSymbol.And, left, right)
 
+    def substitute(self, var, const):
+        left = self.getLeft().substitute(var, const)
+        right = self.getRight().substitute(var, const)
+        return AndFormula(left, right)
+
 
 class OrFormula(Formula):
 
     def __init__(self, left=None, right=None):
         super().__init__(FormulaSymbol.Or, left, right)
+
+    def substitute(self, var, const):
+        left = self.getLeft().substitute(var, const)
+        right = self.getRight().substitute(var, const)
+        return OrFormula(left, right)
 
 
 class ImpliesFormula(Formula):
@@ -155,6 +173,11 @@ class ImpliesFormula(Formula):
 
     def expand(self) -> Formula:
         return OrFormula(NotFormula(self.getLeft()), self.getRight())
+
+    def substitute(self, var, const):
+        left = self.getLeft().substitute(var, const)
+        right = self.getRight().substitute(var, const)
+        return ImpliesFormula(left, right)
 
 
 class NotFormula(Formula):
@@ -168,16 +191,24 @@ class NotFormula(Formula):
             return OrFormula(NotFormula(formula.getLeft()), NotFormula(formula.getRight()))
         elif isinstance(formula, OrFormula):  # ~(A | B) = ~A & ~B
             return AndFormula(NotFormula(formula.getLeft()), NotFormula(formula.getRight()))
-        elif isinstance(formula, NotFormula):  # ~~A = A
-            return formula.getLeft()
+        elif isinstance(formula, NotFormula):  # ~~A = A (where A is expanded form)
+            result = formula.getLeft()
+            if isinstance(result, Formula) and result.canExpand():
+                return result.expand()
+            else:
+                return result
         elif isinstance(formula, ImpliesFormula):  # ~(A -> B) = A & ~B
             return AndFormula(formula.getLeft(), NotFormula(formula.getRight()))
         elif isinstance(formula, ForAllFormula):  # -Ax = E-x
-            return ExistFormula(formula.getVariable(), NotFormula(formula))
+            return ExistFormula(formula.getVariable(), NotFormula(formula.getLeft()))
         elif isinstance(formula, ExistFormula):  # -Ex = A-x
-            return ForAllFormula(formula.getVariable(), NotFormula(formula))
+            return ForAllFormula(formula.getVariable(), NotFormula(formula.getLeft()))
         else:  # ~A = ~A
             return self
+
+    def substitute(self, var, const):
+        left = self.getLeft().substitute(var, const)
+        return NotFormula(left)
 
 
 class ForAllFormula(Formula):
@@ -190,6 +221,13 @@ class ForAllFormula(Formula):
     def getVariable(self):
         return self._var
 
+    def substitute(self, v: Variable, c: Constant):
+        if self._var != v:
+            fm = self.getLeft().substitute(v, c)
+            return ForAllFormula(self.getVariable(), fm)
+        else:
+            return self
+
 
 class ExistFormula(Formula):
     _var: Variable
@@ -200,6 +238,13 @@ class ExistFormula(Formula):
 
     def getVariable(self):
         return self._var
+
+    def substitute(self, v, c):
+        if self._var != v:
+            fm = self.getLeft().substitute(v, c)
+            return ExistFormula(self.getVariable(), fm)
+        else:
+            return self
 
 
 class ParseException(Exception):
@@ -281,7 +326,7 @@ class Parser:
             if not Variable.isVar(var2):
                 raise ParseException("var2 is not a variable")
             self.eatNext(")")
-            return Predicate(name, var1, var2)
+            return Predicate(name, Variable(var1), Variable(var2))
 
         # propositional logic base case
         elif Proposition.isProp(first):
@@ -302,7 +347,7 @@ class Parser:
             if not Variable.isVar(var):
                 raise ParseException("existentially quantifier requires a variable")
             formula = self.parseFormula()
-            return ExistFormula(var, formula)
+            return ExistFormula(Variable(var), formula)
 
         # universally quantified
         elif first == FormulaSymbol.All:
@@ -312,7 +357,7 @@ class Parser:
             if not Variable.isVar(var):
                 raise ParseException("universally quantifier requires a variable")
             formula = self.parseFormula()
-            return ForAllFormula(var, formula)
+            return ForAllFormula(Variable(var), formula)
 
         # parentheses
         # the only child inside parentheses is binary operation
@@ -353,6 +398,9 @@ class Result:
     def __str__(self):
         return satOutput[self.result]
 
+    def deterministic(self):
+        return self.result != Result.MAY_SATISFIABLE
+
     @staticmethod
     def checkSAT(self, other):
         if self.result == Result.SATISFIABLE or other.result == Result.SATISFIABLE:
@@ -362,6 +410,22 @@ class Result:
         if self.result == Result.NOT_SATISFIABLE and other.result == Result.NOT_SATISFIABLE:
             return Result(Result.NOT_SATISFIABLE)
         raise TableauException("Uncaught logic or evaluation, left: " + str(self) + " right: " + str(other))
+
+
+class ConstantSupplier:
+    def __init__(self, consts):
+        self._constants: [Constant] = consts
+        self._i = 0
+
+    def canConsume(self):
+        return self._i < len(self._constants)
+
+    def consume(self) -> Constant | None:
+        if self.canConsume():
+            result = self._constants[self._i]
+            self._i += 1
+            return result
+        return None
 
 
 class PriorityQueue:
@@ -378,11 +442,11 @@ class PriorityQueue:
         # terminal terms along the proof trace
         self.symbols: [Symbol] = syms
         # constants introduced
-        self.constants: [Constant] = consts
+        self.consts: [Constant] = consts
 
     def addFormula(self, fm: Symbol):
         # we expand in advance so that we have apply the rule directly after retrieving formula
-        if isinstance(fm, NotFormula) or isinstance(fm, ImpliesFormula):
+        if isinstance(fm, Formula) and fm.canExpand():
             fm = fm.expand()
 
         if fm.isSymbol():
@@ -413,8 +477,8 @@ class PriorityQueue:
                         return symbol
         return None
 
-    def getAllConstants(self):
-        return self.constants
+    def getSupplier(self):
+        return ConstantSupplier(self.consts)
 
     # try to introduce new constant followed by Ex expansion
     # when it has introduced more than 10 constants
@@ -423,18 +487,18 @@ class PriorityQueue:
         for i in range(10):
             newConstChar = chr(ord('a') + i)
             duplicate = False
-            for exC in self.constants:
+            for exC in self.consts:
                 if exC.name == newConstChar:
                     duplicate = True
                     break
             if not duplicate:
                 newConst = Constant(newConstChar)
-                self.constants.append(newConst)
+                self.consts.append(newConst)
                 return newConst
         return None
 
     def copy(self):
-        return PriorityQueue(self.formulas.copy(), self.symbols.copy(), self.constants.copy())
+        return PriorityQueue(self.formulas.copy(), self.symbols.copy(), self.consts.copy())
 
 
 class ProofMachine:
@@ -486,12 +550,13 @@ class ProofMachine:
         return Result.checkSAT(leftCondition, rightCondition)
 
     def _isFormulaClosed(self, fm: Symbol, queue: PriorityQueue, prefix: str, childrenPrefix: str) -> Result:
-        # reschedule the formula order
-        queue.addFormula(fm)
-        fm = queue.getFormula()
+        if isinstance(fm, Formula) and fm.canExpand():
+            fm = fm.expand()
 
-        # end of branch, check if and remaining formulas unchecked
-        if fm is None:
+        # if fm is a symbol
+        if fm.isSymbol():
+            # add to symbol queue
+            queue.addFormula(fm)
             return self._atom(queue, prefix, childrenPrefix)
 
         # alpha expansion
@@ -505,6 +570,48 @@ class ProofMachine:
             prefix = childrenPrefix + "├─beta({0})─ ".format(self._expand_id)
             childrenPrefix = childrenPrefix + "│            "
             return self._beta(fm, queue, prefix, childrenPrefix)
+
+        # delta expansion (There exist...)
+        elif isinstance(fm, ExistFormula):
+            prefix = childrenPrefix + "├─delta({0})─ ".format(self._expand_id)
+            childrenPrefix = childrenPrefix + "│            "
+
+            constant = queue.introduceConstant()
+            if constant is None:
+                return Result(Result.MAY_SATISFIABLE)
+            else:
+                # perform substitution
+                substFm = fm.getLeft().substitute(fm.getVariable(), constant)
+                queue.addFormula(substFm)
+                return self._atom(queue, prefix, childrenPrefix)
+
+        # gamma expansion (Forall ...)
+        elif isinstance(fm, ForAllFormula):
+            prefix = childrenPrefix + "├─gamma({0})─ ".format(self._expand_id)
+            childrenPrefix = childrenPrefix + "│            "
+
+            # do not tick the node ...
+            # which means that we need to try all possibilities
+
+            result = None
+            constsSupplier = queue.getSupplier()
+
+            while constsSupplier.canConsume():
+                c = constsSupplier.consume()
+                assert c is not None
+
+                substFm = fm.getLeft().substitute(fm.getVariable(), c)
+                queue.addFormula(substFm)
+                result = self._atom(queue, prefix, childrenPrefix)
+                if result.result == Result.NOT_SATISFIABLE:
+                    return result
+
+            # we have no constants at this moment
+            if result is None:
+                return Result(Result.SATISFIABLE)
+            # exhausted all 10 symbols
+            else:
+                return Result(Result.MAY_SATISFIABLE)
 
         else:
             raise TableauException("Cannot evaluate formula " + str(fm))
